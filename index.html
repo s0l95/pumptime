@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000" id="themeColor">
+<title>Trainingswecker</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Wecker">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>
+/* Layout: eine Spalte. Oben Rundenanzeige und Einstellungen, in der Mitte der Ring mit der Sekundenanzeige, unten die Steuerung. */
+:root{
+  --bg:#000000;
+  --fg-rgb:245,245,245;
+  --fg:rgb(var(--fg-rgb));
+  --fg-2:rgba(var(--fg-rgb),.55);
+  --line:rgba(var(--fg-rgb),.2);
+  --panel:color-mix(in srgb,var(--bg),rgb(var(--fg-rgb)) 9%);
+  --ring:min(84vw,46vh);
+  --font-num:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',system-ui,sans-serif;
+  --font-ui:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--fg);font-family:var(--font-ui);
+  -webkit-tap-highlight-color:transparent;overflow:hidden;
+  transition:background .25s;
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--fg);outline-offset:3px}
+
+.progress{position:fixed;top:0;left:0;height:2px;width:0;background:var(--fg);opacity:.55}
+
+.app{
+  height:100%;display:flex;flex-direction:column;
+  padding:max(14px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(20px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
+}
+.top{display:flex;align-items:center;justify-content:space-between;min-height:48px}
+.round{font-size:14px;letter-spacing:.18em;text-transform:uppercase;color:var(--fg-2)}
+.icon-btn{width:48px;height:48px;display:grid;place-items:center;border-radius:50%;color:var(--fg-2)}
+.icon-btn:hover{color:var(--fg)}
+.icon-btn svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+
+.main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(16px,4vh,36px);min-height:0}
+.ring{position:relative;width:var(--ring);height:var(--ring)}
+.ring svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.ring .track{fill:none;stroke:var(--line);stroke-width:2}
+.ring .arc{fill:none;stroke:var(--fg);stroke-width:3;stroke-linecap:round;transition:stroke .2s,opacity .2s}
+.ring.rest .arc{opacity:.45}
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2vh}
+.label{font-size:15px;font-weight:400;letter-spacing:.32em;text-indent:.32em;color:var(--fg-2);text-transform:uppercase}
+.num{
+  font-family:var(--font-num);font-weight:200;line-height:1;
+  font-size:calc(var(--ring)*.46);font-variant-numeric:tabular-nums;
+  transition:color .2s;
+}
+.num.small{font-size:calc(var(--ring)*.3)}
+.ring.rest .num{color:var(--fg-2)}
+.total{display:flex;flex-direction:column;align-items:center;gap:4px}
+.total b{font-family:var(--font-num);font-weight:300;font-size:26px;font-variant-numeric:tabular-nums}
+.total span{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--fg-2)}
+
+.controls{display:flex;justify-content:center;align-items:center;gap:12px;padding-top:8px}
+.btn{height:58px;border-radius:999px;border:1px solid var(--line);padding:0 26px;font-size:17px;font-weight:500;letter-spacing:.02em}
+.btn.primary{min-width:170px;background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.btn.ghost{color:var(--fg-2)}
+.btn.ghost[aria-hidden="true"]{visibility:hidden}
+
+/* Einstellungen */
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center;z-index:5}
+.sheet{
+  width:100%;max-width:520px;max-height:90%;overflow:auto;
+  background:var(--panel);border:1px solid var(--line);border-bottom:0;
+  border-radius:22px 22px 0 0;padding:20px 20px max(24px,env(safe-area-inset-bottom));
+}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.sheet h2{font-size:18px;font-weight:500;letter-spacing:.04em}
+.close{height:44px;padding:0 6px;color:var(--fg);font-weight:500}
+.note{font-size:13px;color:var(--fg-2);margin:2px 0 8px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:60px;border-bottom:1px solid var(--line);padding:8px 0}
+.row:last-of-type{border-bottom:0}
+.rt{font-size:16px}
+.rh{font-size:12.5px;color:var(--fg-2);margin-top:2px}
+.stepper{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.stepper button{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);font-size:22px;line-height:1;display:grid;place-items:center}
+.stepper button:disabled{opacity:.3;cursor:default}
+.stepper output{min-width:68px;text-align:center;font-family:var(--font-num);font-size:17px;font-weight:300;font-variant-numeric:tabular-nums}
+.stack{display:flex;flex-direction:column;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.stack:last-of-type{border-bottom:0}
+input[type=range]{width:100%;accent-color:var(--fg);height:32px}
+.swatches{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.sw{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);position:relative}
+.sw[aria-pressed="true"]{outline:2px solid var(--fg);outline-offset:3px}
+.pick{width:44px;height:44px;border-radius:50%;border:1px dashed var(--fg-2);padding:0;background:none;cursor:pointer}
+.pick::-webkit-color-swatch-wrapper{padding:0}
+.pick::-webkit-color-swatch{border:0;border-radius:50%}
+.pick::-moz-color-swatch{border:0;border-radius:50%}
+.slide{display:flex;justify-content:space-between;align-items:baseline;font-size:15px}
+.slide output{font-family:var(--font-num);font-weight:300;color:var(--fg-2);font-variant-numeric:tabular-nums}
+input[type=range]:disabled{opacity:.35}
+.test{align-self:flex-start;height:44px;padding:0 20px;border-radius:999px;border:1px solid var(--line);font-size:15px}
+
+@media (prefers-reduced-motion:reduce){body,.ring .arc,.num{transition:none}}
+@media (max-height:560px){:root{--ring:min(60vw,56vh)}.controls{padding-top:0}.btn{height:50px}}
+</style>
+</head>
+<body>
+<div class="progress" id="bar"></div>
+<div class="app">
+  <div class="top">
+    <div class="round" id="roundTxt"></div>
+    <button class="icon-btn" id="openSettings" aria-label="Einstellungen">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </div>
+
+  <div class="main">
+    <div class="ring" id="ring">
+      <svg viewBox="0 0 300 300" aria-hidden="true">
+        <circle class="track" cx="150" cy="150" r="140"/>
+        <circle class="arc" id="arc" cx="150" cy="150" r="140"/>
+      </svg>
+      <div class="center">
+        <div class="label" id="label">Bereit</div>
+        <div class="num" id="num" role="timer" aria-live="off">40</div>
+      </div>
+    </div>
+    <div class="total"><b id="totalTxt">20:00</b><span>Gesamt verbleibend</span></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn ghost" id="resetBtn" aria-hidden="true" tabindex="-1">Zurücksetzen</button>
+    <button class="btn primary" id="mainBtn">Start</button>
+  </div>
+</div>
+
+<div class="backdrop" id="backdrop" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-head">
+      <h2 id="sheetTitle">Einstellungen</h2>
+      <button class="close" id="closeSettings">Fertig</button>
+    </div>
+    <p class="note" id="lockNote" hidden>Zeiten und Töne lassen sich nur ändern, wenn der Timer zurückgesetzt ist.</p>
+    <div id="fields"></div>
+
+    <div class="stack">
+      <div class="rt">Lautstärke</div>
+      <input type="range" id="vol" min="10" max="100" step="5" aria-label="Lautstärke">
+    </div>
+
+    <div class="stack">
+      <div class="rt">Tonhöhe</div>
+      <div class="slide"><span>Tiefer Ton</span><output id="lowOut"></output></div>
+      <input type="range" id="lowHz" min="200" max="1500" step="25" aria-label="Tonhöhe tiefer Ton">
+      <div class="slide"><span>Heller Ton</span><output id="highOut"></output></div>
+      <input type="range" id="highHz" min="400" max="3000" step="25" aria-label="Tonhöhe heller Ton">
+      <div class="rh" id="hzNote" hidden>Während des Trainings gesperrt. Die neue Tonhöhe gilt nach Pause oder Zurücksetzen.</div>
+      <button class="test" id="testBtn">Töne testen</button>
+    </div>
+
+    <div class="stack">
+      <div class="rt">Hintergrund</div>
+      <div class="swatches" id="swatches"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+
+/* ---------- Einstellungen ---------- */
+var FIELDS = [
+  {k:'total',    label:'Gesamtzeit',              unit:'min', min:1, max:180, step:1},
+  {k:'work',     label:'Übung',                   unit:'s',   min:5, max:600, step:5},
+  {k:'rest',     label:'Pause',                   unit:'s',   min:0, max:600, step:5},
+  {k:'prep',     label:'Vorlauf',                 unit:'s',   min:0, max:30,  step:1, hint:function(){ return 'Zeit zum Positionieren vor der ersten Übung'; }},
+  {k:'warnWork', label:'Töne vor Ende der Übung', unit:'',    min:1, max:10,  step:1, hint:function(n){ return n>1 ? (n-1)+' tiefe Töne, dann 1 heller Ton zum Wechsel' : '1 heller Ton zum Wechsel'; }},
+  {k:'warnRest', label:'Töne vor Ende der Pause', unit:'',    min:1, max:10,  step:1, hint:function(n){ return n>1 ? (n-1)+' tiefe Töne, dann 1 heller Ton zum Wechsel' : '1 heller Ton zum Wechsel'; }}
+];
+var DEF = {total:20, work:40, rest:20, prep:5, warnWork:5, warnRest:3, vol:80, lowHz:587, highHz:1175, bg:'#000000'};
+var S = {}; for (var d in DEF) S[d] = DEF[d];
+try {
+  var saved = JSON.parse(localStorage.getItem('trainingswecker') || 'null');
+  if (saved && typeof saved === 'object') for (var s in saved) if (s in DEF) S[s] = saved[s];
+} catch(e){}
+function clamp(v,a,b){ return Math.min(b, Math.max(a, v)); }
+FIELDS.forEach(function(f){ var v = Number(S[f.k]); S[f.k] = isFinite(v) ? clamp(Math.round(v), f.min, f.max) : DEF[f.k]; });
+S.vol = clamp(Number(S.vol)||DEF.vol, 10, 100);
+S.lowHz = clamp(Math.round(Number(S.lowHz)||DEF.lowHz), 200, 1500);
+S.highHz = clamp(Math.round(Number(S.highHz)||DEF.highHz), 400, 3000);
+if (!/^#[0-9a-f]{6}$/i.test(S.bg)) S.bg = DEF.bg;
+function save(){ try { localStorage.setItem('trainingswecker', JSON.stringify(S)); } catch(e){} }
+
+/* ---------- Ablaufplan ---------- */
+function buildTimeline(){
+  var phases = [], t = 0;
+  if (S.prep > 0){ phases.push({type:'prep', start:0, end:S.prep, round:0}); t = S.prep; }
+  var base = t, end = base + S.total*60, round = 0, isWork = true, rounds = 0;
+  while (t < end - 1e-6){
+    var dur = isWork ? S.work : S.rest;
+    if (dur > 0){
+      var e = Math.min(t + dur, end);
+      if (isWork){ round++; rounds++; }
+      phases.push({type:isWork?'work':'rest', start:t, end:e, round:round});
+      t = e;
+    }
+    isWork = !isWork;
+  }
+  return {phases:phases, base:base, end:end, rounds:rounds};
+}
+/* Töne: N Töne, der letzte (hell) genau beim Wechsel, davor je 1 pro Sekunde (tief). */
+function buildEvents(TL){
+  var ev = [];
+  TL.phases.forEach(function(p){
+    var n = p.type === 'work' ? S.warnWork : S.warnRest;
+    for (var k = n-1; k >= 0; k--){
+      var t = p.end - k;
+      if (k === 0 || t >= p.start + 0.2) ev.push({t:t, high:k === 0});
+    }
+  });
+  return ev;
+}
+
+/* ---------- Audio ---------- */
+/* iOS: Web Audio folgt sonst dem Stummschalter. Eine 'playback'-Audiositzung und ein stilles, loopendes Audio-Element machen die Töne hörbar. */
+var keepEl = null, keepUrl = null;
+function silentUrl(){
+  if (keepUrl) return keepUrl;
+  var n = 8000, b = new Uint8Array(44 + n), v = new DataView(b.buffer);
+  function str(o, s){ for (var i = 0; i < s.length; i++) b[o + i] = s.charCodeAt(i); }
+  str(0,'RIFF'); v.setUint32(4, 36 + n, true); str(8,'WAVE'); str(12,'fmt ');
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,8000,true); v.setUint32(28,8000,true); v.setUint16(32,1,true); v.setUint16(34,8,true);
+  str(36,'data'); v.setUint32(40,n,true);
+  for (var i = 0; i < n; i++) b[44 + i] = 128;
+  keepUrl = URL.createObjectURL(new Blob([b], {type:'audio/wav'}));
+  return keepUrl;
+}
+function keepAudioOn(){
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch(e){}
+  try {
+    if (!keepEl){ keepEl = new Audio(silentUrl()); keepEl.loop = true; keepEl.setAttribute('playsinline',''); }
+    var p = keepEl.play(); if (p && p.catch) p.catch(function(){});
+  } catch(e){}
+}
+function keepAudioOff(){ try { if (keepEl) keepEl.pause(); } catch(e){} }
+var ctx = null, master = null, scheduled = [];
+function ensureAudio(){
+  keepAudioOn();
+  if (!ctx){
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return Promise.resolve();
+    ctx = new AC();
+    master = ctx.createGain();
+    master.connect(ctx.destination);
+  }
+  master.gain.value = S.vol/100;
+  return ctx.state === 'suspended' ? ctx.resume() : Promise.resolve();
+}
+function tone(at, high){
+  if (!ctx) return;
+  var o = ctx.createOscillator(), g = ctx.createGain();
+  var dur = high ? 0.45 : 0.16;
+  o.type = 'triangle';
+  o.frequency.value = high ? S.highHz : S.lowHz;
+  g.gain.setValueAtTime(0, at);
+  g.gain.linearRampToValueAtTime(1, at + 0.01);
+  g.gain.setValueAtTime(1, at + dur - 0.06);
+  g.gain.linearRampToValueAtTime(0, at + dur);
+  o.connect(g); g.connect(master);
+  o.start(at); o.stop(at + dur + 0.02);
+  scheduled.push(o);
+}
+function clearScheduled(){
+  scheduled.forEach(function(o){ try { o.stop(); o.disconnect(); } catch(e){} });
+  scheduled = [];
+}
+
+/* ---------- Zustand ---------- */
+var st = 'idle';           // idle | running | paused | done
+var TL = buildTimeline(), EV = [];
+var elapsed = 0, t0 = 0, busy = false;
+
+function cur(){ return st === 'running' ? elapsed + Math.max(0, (performance.now() - t0)/1000) : elapsed; }
+
+var wl = null;
+function wake(){
+  try {
+    if ('wakeLock' in navigator){
+      navigator.wakeLock.request('screen').then(function(l){ wl = l; l.addEventListener('release', function(){ wl = null; }); }).catch(function(){});
+    }
+  } catch(e){}
+}
+function unwake(){ try { if (wl) wl.release(); } catch(e){} wl = null; }
+
+function play(){
+  if (st === 'running' || busy) return;
+  busy = true;
+  ensureAudio().catch(function(){}).then(function(){
+    busy = false;
+    if (st === 'idle' || st === 'done'){ TL = buildTimeline(); EV = buildEvents(TL); elapsed = 0; }
+    clearScheduled();
+    var E = elapsed;
+    if (ctx){
+      var a0 = ctx.currentTime + 0.05;
+      EV.forEach(function(ev){ if (ev.t > E + 0.001) tone(a0 + (ev.t - E), ev.high); });
+    }
+    t0 = performance.now() + 50;
+    st = 'running';
+    wake();
+    render();
+  });
+}
+function pause(){
+  if (st !== 'running') return;
+  elapsed = cur(); st = 'paused';
+  clearScheduled(); unwake(); keepAudioOff(); render();
+}
+function reset(){
+  clearScheduled(); unwake(); keepAudioOff();
+  st = 'idle'; elapsed = 0; TL = buildTimeline(); render();
+}
+function finish(){
+  st = 'done'; elapsed = TL.end; unwake(); setTimeout(keepAudioOff, 800); render();
+}
+
+/* ---------- Anzeige ---------- */
+var C = 2*Math.PI*140;
+var arc = $('arc'); arc.style.strokeDasharray = C;
+function fmt(sec){ var m = Math.floor(sec/60), s = sec%60; return m + ':' + (s<10?'0':'') + s; }
+
+function render(){
+  var e = cur();
+  if (st === 'running' && e >= TL.end){ finish(); return; }
+  var label, num, frac = 0, rest = false, roundTxt, totalRem, prog;
+
+  if (st === 'idle'){
+    label = 'Bereit'; num = S.work; totalRem = S.total*60; prog = 0;
+    roundTxt = TL.rounds + ' Runden';
+  } else if (st === 'done'){
+    label = 'Fertig'; num = 0; totalRem = 0; prog = 1;
+    roundTxt = TL.rounds + ' von ' + TL.rounds;
+  } else {
+    var p = TL.phases[0];
+    for (var i = 0; i < TL.phases.length; i++){ if (TL.phases[i].start <= e + 1e-9) p = TL.phases[i]; else break; }
+    num = Math.max(0, Math.ceil(p.end - e - 1e-6));
+    frac = clamp((e - p.start)/(p.end - p.start), 0, 1);
+    label = p.type === 'work' ? 'Übung' : p.type === 'rest' ? 'Pause' : 'Gleich geht’s los';
+    rest = p.type === 'rest';
+    roundTxt = p.round ? 'Runde ' + p.round + ' / ' + TL.rounds : TL.rounds + ' Runden';
+    var eb = Math.max(e, TL.base);
+    totalRem = Math.max(0, Math.ceil(TL.end - eb - 1e-6));
+    prog = (eb - TL.base)/(TL.end - TL.base);
+  }
+
+  var numEl = $('num');
+  var numTxt = num >= 100 ? fmt(num) : String(num);
+  if (numEl.textContent !== numTxt) numEl.textContent = numTxt;
+  numEl.classList.toggle('small', num >= 100);
+  if ($('label').textContent !== label) $('label').textContent = label;
+  $('ring').classList.toggle('rest', rest);
+  arc.style.strokeDashoffset = C*frac;
+  $('roundTxt').textContent = roundTxt;
+  $('totalTxt').textContent = fmt(totalRem);
+  $('bar').style.width = (prog*100) + '%';
+
+  var mb = $('mainBtn');
+  var mt = st === 'running' ? 'Pause' : st === 'paused' ? 'Weiter' : st === 'done' ? 'Nochmal' : 'Start';
+  if (mb.textContent !== mt) mb.textContent = mt;
+  var rb = $('resetBtn'), showReset = (st === 'paused' || st === 'running' || st === 'done');
+  rb.setAttribute('aria-hidden', showReset ? 'false' : 'true');
+  rb.tabIndex = showReset ? 0 : -1;
+}
+
+function loop(){ if (st === 'running') render(); requestAnimationFrame(loop); }
+setInterval(function(){ if (st === 'running') render(); }, 500);
+document.addEventListener('visibilitychange', function(){
+  if (document.hidden) return;
+  if (st === 'running'){ wake(); }
+  render();
+});
+
+/* ---------- Hintergrund ---------- */
+var SWATCHES = [
+  ['#000000','Schwarz'], ['#1c1c1e','Anthrazit'], ['#0a1428','Nachtblau'],
+  ['#0b1a12','Tannengrün'], ['#26100f','Dunkelrot'], ['#ffffff','Weiß']
+];
+function lum(hex){
+  var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return (0.299*r + 0.587*g + 0.114*b)/255;
+}
+function applyTheme(){
+  var root = document.documentElement, dark = lum(S.bg) < 0.55;
+  root.style.setProperty('--bg', S.bg);
+  root.style.setProperty('--fg-rgb', dark ? '245,245,245' : '12,12,12');
+  root.style.colorScheme = dark ? 'dark' : 'light';
+  $('themeColor').setAttribute('content', S.bg);
+}
+function buildSwatches(){
+  var box = $('swatches'); box.innerHTML = '';
+  SWATCHES.forEach(function(sw){
+    var b = document.createElement('button');
+    b.className = 'sw'; b.style.background = sw[0];
+    b.setAttribute('aria-label', sw[1]);
+    b.setAttribute('aria-pressed', String(S.bg.toLowerCase() === sw[0]));
+    b.addEventListener('click', function(){ S.bg = sw[0]; save(); applyTheme(); buildSwatches(); });
+    box.appendChild(b);
+  });
+  var inp = document.createElement('input');
+  inp.type = 'color'; inp.id = 'bgcustom'; inp.className = 'pick'; inp.value = S.bg;
+  inp.setAttribute('aria-label', 'Eigene Farbe');
+  inp.addEventListener('input', function(){ S.bg = inp.value; save(); applyTheme(); });
+  inp.addEventListener('change', function(){ buildSwatches(); });
+  box.appendChild(inp);
+}
+
+/* ---------- Einstellungsfenster ---------- */
+function buildFields(){
+  var box = $('fields'); box.innerHTML = '';
+  FIELDS.forEach(function(f){
+    var row = document.createElement('div'); row.className = 'row';
+    row.innerHTML =
+      '<div><div class="rt">' + f.label + '</div><div class="rh" id="h-' + f.k + '"></div></div>' +
+      '<div class="stepper">' +
+        '<button type="button" data-k="' + f.k + '" data-d="-1" aria-label="' + f.label + ' verringern">−</button>' +
+        '<output id="v-' + f.k + '"></output>' +
+        '<button type="button" data-k="' + f.k + '" data-d="1" aria-label="' + f.label + ' erhöhen">+</button>' +
+      '</div>';
+    box.appendChild(row);
+  });
+  box.addEventListener('click', function(ev){
+    var b = ev.target.closest('button[data-k]'); if (!b || b.disabled) return;
+    var f = FIELDS.filter(function(x){ return x.k === b.dataset.k; })[0];
+    S[f.k] = clamp(S[f.k] + f.step*Number(b.dataset.d), f.min, f.max);
+    save(); applySettings();
+  });
+}
+function refreshFields(){
+  var locked = st !== 'idle';
+  $('lockNote').hidden = !locked;
+  FIELDS.forEach(function(f){
+    $('v-' + f.k).textContent = S[f.k] + (f.unit ? ' ' + f.unit : '');
+    var h = $('h-' + f.k);
+    h.textContent = f.hint ? f.hint(S[f.k]) : '';
+    h.hidden = !f.hint;
+    document.querySelectorAll('button[data-k="' + f.k + '"]').forEach(function(b){
+      var dir = Number(b.dataset.d);
+      b.disabled = locked || (dir < 0 && S[f.k] <= f.min) || (dir > 0 && S[f.k] >= f.max);
+    });
+  });
+}
+function applySettings(){
+  if (st === 'idle') TL = buildTimeline();
+  refreshFields(); render();
+}
+function hzRefresh(){
+  $('lowHz').value = S.lowHz; $('highHz').value = S.highHz;
+  $('lowOut').textContent = S.lowHz + ' Hz'; $('highOut').textContent = S.highHz + ' Hz';
+  var run = st === 'running';
+  $('lowHz').disabled = run; $('highHz').disabled = run; $('hzNote').hidden = !run;
+}
+function openSettings(){ refreshFields(); hzRefresh(); $('vol').value = S.vol; buildSwatches(); $('backdrop').hidden = false; $('closeSettings').focus(); }
+function closeSettings(){ $('backdrop').hidden = true; $('openSettings').focus(); }
+
+$('openSettings').addEventListener('click', openSettings);
+$('closeSettings').addEventListener('click', closeSettings);
+$('backdrop').addEventListener('click', function(e){ if (e.target === $('backdrop')) closeSettings(); });
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && !$('backdrop').hidden) closeSettings();
+  else if ((e.key === ' ' || e.code === 'Space') && $('backdrop').hidden && document.activeElement.tagName !== 'BUTTON'){
+    e.preventDefault(); toggle();
+  }
+});
+$('vol').addEventListener('input', function(e){
+  S.vol = Number(e.target.value); save();
+  if (master) master.gain.value = S.vol/100;
+});
+$('lowHz').addEventListener('input', function(e){ S.lowHz = Number(e.target.value); save(); hzRefresh(); });
+$('highHz').addEventListener('input', function(e){ S.highHz = Number(e.target.value); save(); hzRefresh(); });
+$('testBtn').addEventListener('click', function(){
+  ensureAudio().catch(function(){}).then(function(){
+    if (!ctx) return;
+    var a = ctx.currentTime + 0.05;
+    tone(a, false); tone(a + 0.8, false); tone(a + 1.6, true);
+  });
+});
+
+/* ---------- Steuerung ---------- */
+function toggle(){
+  if (st === 'running') pause(); else play();
+}
+$('mainBtn').addEventListener('click', toggle);
+$('resetBtn').addEventListener('click', reset);
+
+applyTheme();
+render();
+requestAnimationFrame(loop);
+buildFields();
+try { if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function(){}); } catch(e){}
+})();
+</script>
+</body>
+</html>
